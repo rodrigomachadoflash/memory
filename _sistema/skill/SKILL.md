@@ -63,9 +63,28 @@ Para cada item aprovado:
 - Apagar do `inbox/` o que foi processado.
 - Itens rejeitados: apenas remover de updates-pendentes.
 
-### 5. Fechar
+### 5. Skill feedback (loop de aprendizado)
+
+Antes de fechar, cheque se há outputs de skills sem rating:
+
+```bash
+# Outputs novos desde o último sync (data do último changelog)
+grep -v "^#\|^$\|^|---" ~/Documents/Repos/growth/output/INDEX.md | tail -20
+```
+
+Para cada output novo que **não** aparece em nenhum `feedback.md` de skill:
+
+1. Mostre: _"Novo output de /{skill}: `{nome-arquivo}` — quer registrar uma nota? (1-10 e uma linha, ou Enter para pular)"_
+2. Se o Rodrigo responder:
+   - Escreva a linha no `feedback.md` da skill correspondente (seção "Outputs de referência").
+   - Se não existir `feedback.md`, crie a partir do template em `growth/skills/_sistema/feedback-template.md`.
+3. Se pular: sem problema — registre o arquivo como "sem rating" para a próxima rodada.
+
+Máximo **3 outputs por sync** para não virar um interrogatório. Priorize os mais recentes.
+
+### 6. Fechar
 
 - Esvaziar `_sistema/updates-pendentes.md` (deixar "_Nenhum update pendente._").
 - Adicionar entrada datada no `_sistema/changelog.md` com o que foi aplicado.
 - `git add -A && git commit -m "sync: {AAAA-MM-DD}" && git push` no repo memory.
-- Responder com resumo curto: o que entrou, o que ficou de fora, pendências detectadas (ações sem dono, conflitos de agenda).
+- Responder com resumo curto: o que entrou, o que ficou de fora, pendências detectadas (ações sem dono, conflitos de agenda). Se capturou ratings de skills, mencionar quais skills foram atualizadas.
