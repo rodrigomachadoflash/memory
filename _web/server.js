@@ -193,12 +193,12 @@ app.post('/api/approve', (req, res) => {
   res.json({ applied, errors })
 })
 
-function personTemplate({ name, role, folder, notes }) {
+function personTemplate({ name, role, email, folder, notes }) {
   return `# ${name}
 
 - **Papel**: ${role || '<!-- preencher -->'}
 - **Relação**: ${folder?.includes('time') ? 'time direto' : 'stakeholder'}
-- **E-mail / Slack**: <!-- preencher -->
+- **E-mail / Slack**: ${email || '<!-- preencher -->'}
 - **Desde**: <!-- preencher -->
 
 ## Contexto
