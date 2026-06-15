@@ -1,0 +1,14 @@
+{
+  "name": "memory-web",
+  "version": "1.0.0",
+  "description": "Interface web da memória pessoal do Rodrigo",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "marked": "^9.1.6"
+  }
+}

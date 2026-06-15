@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Memory</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: { brand: '#7c6cfa' }
+        }
+      }
+    }
+  </script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    body { background:#08080f; font-family: system-ui, -apple-system, sans-serif; }
+    ::-webkit-scrollbar { width:5px }
+    ::-webkit-scrollbar-track { background:#08080f }
+    ::-webkit-scrollbar-thumb { background:#1e1e2e; border-radius:3px }
+
+    /* Markdown */
+    .md h1 { font-size:1.5rem; font-weight:700; color:#f1f5f9; margin:1.25rem 0 .5rem }
+    .md h2 { font-size:1.15rem; font-weight:600; color:#e2e8f0; border-bottom:1px solid #1e1e2e; padding-bottom:.3rem; margin:1.25rem 0 .5rem }
+    .md h3 { font-size:1rem; font-weight:600; color:#cbd5e1; margin:1rem 0 .3rem }
+    .md p  { color:#94a3b8; line-height:1.75; margin:.4rem 0 }
+    .md ul,.md ol { color:#94a3b8; margin:.4rem 0 .4rem 1.5rem }
+    .md li { margin:.2rem 0 }
+    .md a.wikilink { color:#7c6cfa; text-decoration:underline; cursor:pointer }
+    .md a.wikilink:hover { color:#a78bfa }
+    .md code { background:#1e1e2e; padding:.1rem .35rem; border-radius:.25rem; font-size:.82em; color:#94a3b8; font-family:monospace }
+    .md pre  { background:#1e1e2e; padding:1rem; border-radius:.5rem; overflow-x:auto; margin:.75rem 0 }
+    .md pre code { background:transparent; padding:0 }
+    .md strong { color:#e2e8f0; font-weight:600 }
+    .md em     { color:#a78bfa }
+    .md hr { border-color:#1e1e2e; margin:1rem 0 }
+    .md blockquote { border-left:3px solid #7c6cfa; padding:.4rem 1rem; margin:.5rem 0; background:#12121f; border-radius:0 .5rem .5rem 0 }
+    .md table { width:100%; border-collapse:collapse; margin:.75rem 0 }
+    .md th { background:#1e1e2e; padding:.5rem .75rem; text-align:left; color:#e2e8f0; font-weight:600; font-size:.85rem }
+    .md td { padding:.4rem .75rem; border-bottom:1px solid #1e1e2e; color:#94a3b8; font-size:.85rem }
+    .md input[type=checkbox] { margin-right:.4rem; accent-color:#7c6cfa }
+
+    @keyframes spin { to { transform:rotate(360deg) } }
+    .spin { animation:spin .7s linear infinite }
+  </style>
+</head>
+<body class="min-h-screen">
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React
+
+// ─── API ────────────────────────────────────────────────
+const api = {
+  file: p => fetch(`/api/file?path=${encodeURIComponent(p)}`).then(r => r.json()),
+  list: d => fetch(`/api/list?dir=${encodeURIComponent(d)}`).then(r => r.json()),
+  resolve: n => fetch(`/api/resolve?name=${encodeURIComponent(n)}`).then(r => r.json()),
+  updates: () => fetch('/api/updates').then(r => r.json()),
+  approve: items => fetch('/api/approve', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ items })
+  }).then(r => r.json())
+}
+
+// ─── Router ─────────────────────────────────────────────
+function getRoute() {
+  const hash = window.location.hash.slice(1) || '/'
+  const qi = hash.indexOf('?')
+  const pathname = qi === -1 ? hash : hash.slice(0, qi)
+  const params = new URLSearchParams(qi === -1 ? '' : hash.slice(qi + 1))
+  return { pathname, params }
+}
+
+function useRoute() {
+  const [route, setRoute] = useState(getRoute)
+  useEffect(() => {
+    const h = () => setRoute(getRoute())
+    window.addEventListener('hashchange', h)
+    return () => window.removeEventListener('hashchange', h)
+  }, [])
+  return route
+}
+
+const go = path => { window.location.hash = path }
+const goBack = () => window.history.back()
+
+// ─── UI primitives ──────────────────────────────────────
+function Spinner() {
+  return <div className="spin w-5 h-5 rounded-full border-2 border-violet-500 border-t-transparent mx-auto" />
+}
+
+function Card({ children, className = '', onClick }) {
+  return (
+    <div onClick={onClick}
+      className={`bg-[#0f0f1a] border border-[#1e1e2e] rounded-xl p-5 ${className}`}>
+      {children}
+    </div>
+  )
+}
+
+function Chip({ children }) {
+  return <span className="text-[10px] uppercase tracking-widest text-slate-500 bg-[#1e1e2e] px-2 py-0.5 rounded">{children}</span>
+}
+
+function SectionLabel({ children }) {
+  return <p className="text-[10px] uppercase tracking-widest text-slate-600 mb-3">{children}</p>
+}
+
+// ─── Markdown viewer ────────────────────────────────────
+function MdView({ html }) {
+  const ref = useRef()
+  useEffect(() => {
+    if (!ref.current) return
+    ref.current.querySelectorAll('a.wikilink, a[href^="#/file"]').forEach(a => {
+      a.onclick = e => { e.preventDefault(); window.location.hash = a.getAttribute('href') }
+    })
+  }, [html])
+  return <div ref={ref} className="md" dangerouslySetInnerHTML={{ __html: html }} />
+}
+
+// ─── Nav ────────────────────────────────────────────────
+function Nav({ badge }) {
+  const { pathname } = useRoute()
+  const links = [
+    { to: '/',          label: 'Hoje' },
+    { to: '/updates',   label: 'Updates',  badge },
+    { to: '/pessoas',   label: 'Pessoas' },
+    { to: '/projetos',  label: 'Projetos' },
+    { to: '/reunioes',  label: 'Reuniões' },
+  ]
+  return (
+    <nav className="sticky top-0 z-50 bg-[#08080f]/90 backdrop-blur border-b border-[#1e1e2e]">
+      <div className="max-w-4xl mx-auto px-4 flex items-center gap-1 h-11">
+        <span className="font-semibold text-violet-400 text-xs tracking-[.2em] uppercase mr-4">Memory</span>
+        {links.map(l => (
+          <a key={l.to} href={`#${l.to}`}
+            className={`relative px-3 py-1.5 rounded-lg text-sm flex items-center gap-1.5 transition-colors ${
+              pathname === l.to
+                ? 'bg-violet-600/20 text-violet-300'
+                : 'text-slate-500 hover:text-slate-200 hover:bg-[#1e1e2e]'
+            }`}>
+            {l.label}
+            {l.badge > 0 && (
+              <span className="bg-violet-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+                {l.badge > 9 ? '9+' : l.badge}
+              </span>
+            )}
+          </a>
+        ))}
+      </div>
+    </nav>
+  )
+}
+
+// ─── Pages ──────────────────────────────────────────────
+
+function HomePage() {
+  const [cal, setCal] = useState(null)
+  const [upd, setUpd] = useState(null)
+
+  useEffect(() => {
+    api.file('calendario/semana-atual.md').then(d => setCal(d.html || '')).catch(() => setCal(''))
+    api.updates().then(setUpd).catch(() => setUpd({ isEmpty: true }))
+  }, [])
+
+  const total = upd?.sections?.reduce((n, s) => n + s.items.length, 0) || 0
+  const now = new Date()
+  const dateStr = now.toLocaleDateString('pt-BR', { weekday:'long', day:'numeric', month:'long' })
+
+  return (
+    <div className="max-w-4xl mx-auto px-4 py-8 space-y-6">
+      <div>
+        <h1 className="text-xl font-bold text-slate-100 capitalize">{dateStr}</h1>
+        <p className="text-slate-600 text-xs mt-0.5">Stack pessoal · Rodrigo Machado</p>
+      </div>
+
+      {total > 0 ? (
+        <a href="#/updates">
+          <Card className="border-violet-800/60 bg-violet-950/20 hover:border-violet-600/70 cursor-pointer transition-colors">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-semibold text-violet-300 text-sm">Updates pendentes</p>
+                <p className="text-slate-500 text-xs mt-0.5">{total} {total === 1 ? 'item aguardando' : 'itens aguardando'} aprovação</p>
+              </div>
+              <span className="text-3xl font-bold text-violet-400">{total}</span>
+            </div>
+          </Card>
+        </a>
+      ) : upd && (
+        <Card className="border-emerald-900/40 bg-emerald-950/10">
+          <p className="text-emerald-500 text-sm">Memória em dia ✓</p>
+        </Card>
+      )}
+
+      <Card>
+        <p className="text-xs font-semibold text-slate-400 mb-4">Agenda da semana</p>
+        {cal === null ? <Spinner /> : cal ? <MdView html={cal} /> : (
+          <p className="text-slate-600 text-sm">calendario/semana-atual.md não encontrado. Rode /memory para gerar.</p>
+        )}
+      </Card>
+    </div>
+  )
+}
+
+function UpdatesPage({ onApproved }) {
+  const [data, setData]       = useState(null)
+  const [sel, setSel]         = useState({})
+  const [loading, setLoading] = useState(false)
+  const [done, setDone]       = useState(null)
+
+  useEffect(() => {
+    api.updates().then(d => {
+      setData(d)
+      const init = {}
+      d.sections?.forEach(s => s.items.forEach(item => {
+        init[item.number] = { approved: true, folder: item.folder, role: '', notes: '' }
+      }))
+      setSel(init)
+    })
+  }, [])
+
+  if (!data) return <div className="flex justify-center py-24"><Spinner /></div>
+
+  const allItems = data.sections?.flatMap(s => s.items.map(i => ({ ...i }))) || []
+  const approvedNums = Object.entries(sel).filter(([,v]) => v.approved).map(([k]) => parseInt(k))
+  const count = approvedNums.length
+
+  if (done) {
+    return (
+      <div className="max-w-2xl mx-auto px-4 py-16">
+        <Card className="border-emerald-900/50 bg-emerald-950/10">
+          <p className="text-emerald-400 font-semibold mb-2">✓ Aplicado com sucesso</p>
+          <p className="text-slate-400 text-sm">{done.applied?.length || 0} itens criados e enviados para o GitHub.</p>
+          {done.errors?.length > 0 && (
+            <div className="mt-3 space-y-1">
+              <p className="text-amber-400 text-xs font-semibold">Avisos:</p>
+              {done.errors.map((e,i) => <p key={i} className="text-slate-600 text-xs font-mono">{JSON.stringify(e)}</p>)}
+            </div>
+          )}
+          <a href="#/" className="mt-5 inline-block text-violet-400 text-sm hover:text-violet-300">← Início</a>
+        </Card>
+      </div>
+    )
+  }
+
+  if (data.isEmpty || allItems.length === 0) {
+    return (
+      <div className="max-w-2xl mx-auto px-4 py-24 text-center">
+        <p className="text-slate-500">Nenhum update pendente.</p>
+        <p className="text-slate-700 text-sm mt-2">Rode /memory no Claude Code para sincronizar.</p>
+      </div>
+    )
+  }
+
+  function toggle(num) {
+    setSel(s => ({ ...s, [num]: { ...s[num], approved: !s[num].approved } }))
+  }
+  function upd(num, key, val) {
+    setSel(s => ({ ...s, [num]: { ...s[num], [key]: val } }))
+  }
+  function selectAll(v) {
+    setSel(s => Object.fromEntries(Object.entries(s).map(([k, sv]) => [k, { ...sv, approved: v }])))
+  }
+
+  async function submit() {
+    setLoading(true)
+    const items = allItems
+      .filter(i => sel[i.number]?.approved)
+      .map(i => ({ ...i, folder: sel[i.number]?.folder || i.folder, role: sel[i.number]?.role || '', notes: sel[i.number]?.notes || '' }))
+    const res = await api.approve(items)
+    setDone(res)
+    setLoading(false)
+    if (res.applied?.length > 0) onApproved()
+  }
+
+  return (
+    <div className="max-w-2xl mx-auto px-4 py-8">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-lg font-bold text-slate-100">Updates pendentes</h1>
+          <div className="flex gap-3 mt-1">
+            <button onClick={() => selectAll(true)}  className="text-xs text-violet-400 hover:underline">Selecionar todos</button>
+            <button onClick={() => selectAll(false)} className="text-xs text-slate-600 hover:underline">Desmarcar todos</button>
+          </div>
+        </div>
+        <button onClick={submit} disabled={loading || count === 0}
+          className="px-5 py-2 rounded-lg text-sm font-semibold text-white transition-colors
+            bg-violet-600 hover:bg-violet-500 disabled:bg-[#1e1e2e] disabled:text-slate-600">
+          {loading ? 'Aplicando…' : `Aprovar ${count}`}
+        </button>
+      </div>
+
+      {/* Sections */}
+      {data.sections?.map(section => (
+        <div key={section.title} className="mb-8">
+          <SectionLabel>{section.title}</SectionLabel>
+          <div className="space-y-2">
+            {section.items.map(item => {
+              const s = sel[item.number] || { approved: true }
+              return (
+                <div key={item.number}
+                  className={`rounded-xl border p-4 transition-all ${
+                    s.approved ? 'border-[#2a2a3e] bg-[#0f0f1a]' : 'border-[#1a1a24] bg-[#0a0a10] opacity-40'
+                  }`}>
+                  <div className="flex items-start gap-3">
+                    {/* Checkbox */}
+                    <button onClick={() => toggle(item.number)}
+                      className={`mt-0.5 w-5 h-5 rounded flex-shrink-0 border-2 flex items-center justify-center transition-colors ${
+                        s.approved ? 'bg-violet-600 border-violet-600' : 'border-slate-700 bg-transparent'
+                      }`}>
+                      {s.approved && <span className="text-white text-[10px] font-bold">✓</span>}
+                    </button>
+
+                    <div className="flex-1 min-w-0">
+                      {/* Name + tags */}
+                      <div className="flex flex-wrap items-center gap-2 mb-1">
+                        <span className="text-slate-600 text-[10px]">#{item.number}</span>
+                        <span className="text-slate-100 font-medium text-sm">{item.name}</span>
+                        {item.ambiguous && s.approved && (
+                          <select value={s.folder || 'pessoas/stakeholders'}
+                            onChange={e => upd(item.number, 'folder', e.target.value)}
+                            className="text-xs bg-[#1e1e2e] border border-[#2a2a3e] rounded px-2 py-0.5 text-slate-300">
+                            <option value="pessoas/time">time</option>
+                            <option value="pessoas/stakeholders">stakeholder</option>
+                          </select>
+                        )}
+                        {!item.ambiguous && item.folder && (
+                          <Chip>{item.folder.split('/').pop()}</Chip>
+                        )}
+                      </div>
+
+                      {/* Detail */}
+                      <p className="text-slate-500 text-xs leading-relaxed">{item.detail}</p>
+
+                      {/* Extra fields when approved */}
+                      {s.approved && item.type === 'person' && (
+                        <input placeholder="Cargo / papel (opcional)"
+                          value={s.role || ''}
+                          onChange={e => upd(item.number, 'role', e.target.value)}
+                          className="mt-2 w-full text-sm bg-[#1a1a28] border border-[#2a2a3e] rounded-lg px-3 py-1.5 text-slate-300 placeholder-slate-700 focus:outline-none focus:border-violet-600 transition-colors" />
+                      )}
+                      {s.approved && item.type === 'project' && (
+                        <input placeholder="Objetivo / contexto (opcional)"
+                          value={s.notes || ''}
+                          onChange={e => upd(item.number, 'notes', e.target.value)}
+                          className="mt-2 w-full text-sm bg-[#1a1a28] border border-[#2a2a3e] rounded-lg px-3 py-1.5 text-slate-300 placeholder-slate-700 focus:outline-none focus:border-violet-600 transition-colors" />
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      ))}
+
+      {/* Sticky footer button */}
+      <div className="sticky bottom-4 flex justify-end mt-4">
+        <button onClick={submit} disabled={loading || count === 0}
+          className="px-6 py-2.5 rounded-xl text-sm font-semibold text-white shadow-lg shadow-violet-900/40 transition-colors
+            bg-violet-600 hover:bg-violet-500 disabled:bg-[#1e1e2e] disabled:text-slate-600 disabled:shadow-none">
+          {loading ? 'Aplicando…' : `Aprovar ${count} selecionados`}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function PessoasPage() {
+  const [time, setTime]   = useState(null)
+  const [stake, setStake] = useState(null)
+
+  useEffect(() => {
+    api.list('pessoas/time').then(setTime).catch(() => setTime([]))
+    api.list('pessoas/stakeholders').then(setStake).catch(() => setStake([]))
+  }, [])
+
+  function initials(name) {
+    return name.split('-').map(w => w[0]?.toUpperCase() || '').slice(0, 2).join('')
+  }
+  function pretty(name) {
+    return name.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+  }
+
+  function PersonCard({ p }) {
+    return (
+      <a href={`#/file?path=${encodeURIComponent(p.path)}&name=${encodeURIComponent(pretty(p.name))}`}
+        className="flex items-center gap-3 p-4 bg-[#0f0f1a] border border-[#1e1e2e] rounded-xl
+          hover:border-violet-700/50 hover:bg-[#12121f] transition-all">
+        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-violet-600 to-violet-900 flex items-center justify-center text-xs font-bold text-white flex-shrink-0">
+          {initials(p.name)}
+        </div>
+        <span className="text-sm text-slate-200">{pretty(p.name)}</span>
+      </a>
+    )
+  }
+
+  const loading = time === null || stake === null
+  const empty = !loading && time.length === 0 && stake.length === 0
+
+  return (
+    <div className="max-w-4xl mx-auto px-4 py-8">
+      <h1 className="text-lg font-bold text-slate-100 mb-8">Pessoas</h1>
+      {loading && <div className="py-16"><Spinner /></div>}
+      {!loading && time.length > 0 && (
+        <div className="mb-8">
+          <SectionLabel>Time</SectionLabel>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {time.map(p => <PersonCard key={p.path} p={p} />)}
+          </div>
+        </div>
+      )}
+      {!loading && stake.length > 0 && (
+        <div>
+          <SectionLabel>Stakeholders</SectionLabel>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {stake.map(p => <PersonCard key={p.path} p={p} />)}
+          </div>
+        </div>
+      )}
+      {empty && (
+        <p className="text-slate-600 text-center py-16">
+          Nenhuma pessoa mapeada ainda.{' '}
+          <a href="#/updates" className="text-violet-400 hover:underline">Aprove os updates pendentes</a>.
+        </p>
+      )}
+    </div>
+  )
+}
+
+function ProjetosPage() {
+  const [work, setWork]         = useState(null)
+  const [personal, setPersonal] = useState(null)
+
+  useEffect(() => {
+    api.list('projetos/trabalho').then(setWork).catch(() => setWork([]))
+    api.list('projetos/pessoal').then(setPersonal).catch(() => setPersonal([]))
+  }, [])
+
+  function pretty(name) {
+    return name.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+  }
+
+  function ProjCard({ p }) {
+    return (
+      <a href={`#/file?path=${encodeURIComponent(p.path)}&name=${encodeURIComponent(pretty(p.name))}`}
+        className="block p-4 bg-[#0f0f1a] border border-[#1e1e2e] rounded-xl hover:border-violet-700/50 hover:bg-[#12121f] transition-all">
+        <p className="text-sm text-slate-200 font-medium">{pretty(p.name)}</p>
+      </a>
+    )
+  }
+
+  const loading = work === null || personal === null
+  const empty = !loading && work.length === 0 && personal.length === 0
+
+  return (
+    <div className="max-w-4xl mx-auto px-4 py-8">
+      <h1 className="text-lg font-bold text-slate-100 mb-8">Projetos</h1>
+      {loading && <div className="py-16"><Spinner /></div>}
+      {!loading && work.length > 0 && (
+        <div className="mb-8">
+          <SectionLabel>Trabalho</SectionLabel>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {work.map(p => <ProjCard key={p.path} p={p} />)}
+          </div>
+        </div>
+      )}
+      {!loading && personal.length > 0 && (
+        <div>
+          <SectionLabel>Pessoal</SectionLabel>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {personal.map(p => <ProjCard key={p.path} p={p} />)}
+          </div>
+        </div>
+      )}
+      {empty && <p className="text-slate-600 text-center py-16">Nenhum projeto mapeado ainda.</p>}
+    </div>
+  )
+}
+
+function ReunioesPage() {
+  const [items, setItems] = useState(null)
+
+  useEffect(() => {
+    api.list('reunioes')
+      .then(list => setItems([...list].sort((a, b) => b.modified.localeCompare(a.modified))))
+      .catch(() => setItems([]))
+  }, [])
+
+  function parseFileName(name) {
+    const date = name.slice(0, 10)
+    const rest = name.slice(11).split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+    return { date, title: rest || name }
+  }
+
+  return (
+    <div className="max-w-3xl mx-auto px-4 py-8">
+      <h1 className="text-lg font-bold text-slate-100 mb-8">Reuniões</h1>
+      {items === null && <div className="py-16"><Spinner /></div>}
+      {items?.length === 0 && (
+        <p className="text-slate-600 text-center py-16">
+          Nenhuma reunião registrada.<br />
+          <span className="text-slate-700 text-sm">O Granola sincronizará no próximo /memory.</span>
+        </p>
+      )}
+      {items?.length > 0 && (
+        <div className="space-y-1.5">
+          {items.map(m => {
+            const { date, title } = parseFileName(m.name)
+            return (
+              <a key={m.path} href={`#/file?path=${encodeURIComponent(m.path)}&name=${encodeURIComponent(title)}`}
+                className="flex items-center gap-4 px-4 py-3 bg-[#0f0f1a] border border-[#1e1e2e] rounded-xl hover:border-violet-700/50 hover:bg-[#12121f] transition-all">
+                <span className="text-[11px] text-slate-600 font-mono flex-shrink-0">{date}</span>
+                <span className="text-sm text-slate-200">{title}</span>
+              </a>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function FilePage() {
+  const { pathname, params } = useRoute()
+  const filePath = params.get('path')
+  const fileName = params.get('name')
+  const [data, setData]   = useState(null)
+  const [error, setError] = useState(null)
+  const [resolvedPath, setResolvedPath] = useState(null)
+
+  useEffect(() => {
+    setData(null); setError(null)
+    if (filePath) {
+      setResolvedPath(filePath)
+      api.file(filePath).then(setData).catch(e => setError(e.message))
+    } else if (fileName) {
+      api.resolve(fileName)
+        .then(d => { setResolvedPath(d.path); return api.file(d.path) })
+        .then(setData)
+        .catch(e => setError(e.message || `"${fileName}" não encontrado`))
+    }
+  }, [filePath, fileName])
+
+  const displayName = fileName || resolvedPath?.split('/').pop()?.replace('.md', '')
+    ?.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+
+  return (
+    <div className="max-w-3xl mx-auto px-4 py-8">
+      <div className="flex items-center gap-3 mb-6">
+        <button onClick={goBack} className="text-slate-600 hover:text-slate-300 text-sm transition-colors">← Voltar</button>
+        {resolvedPath && <span className="text-[11px] text-slate-700 font-mono truncate">{resolvedPath}</span>}
+      </div>
+      {!data && !error && <div className="py-16"><Spinner /></div>}
+      {error && (
+        <Card className="border-red-900/40">
+          <p className="text-red-400 text-sm">Não encontrado: {error}</p>
+        </Card>
+      )}
+      {data && (
+        <Card>
+          <MdView html={data.html} />
+        </Card>
+      )}
+    </div>
+  )
+}
+
+// ─── App shell ──────────────────────────────────────────
+function App() {
+  const { pathname } = useRoute()
+  const [badge, setBadge] = useState(0)
+
+  useEffect(() => {
+    api.updates()
+      .then(d => setBadge(d.sections?.reduce((n, s) => n + s.items.length, 0) || 0))
+      .catch(() => {})
+  }, [])
+
+  function render() {
+    switch (pathname) {
+      case '/updates':  return <UpdatesPage onApproved={() => setBadge(0)} />
+      case '/pessoas':  return <PessoasPage />
+      case '/projetos': return <ProjetosPage />
+      case '/reunioes': return <ReunioesPage />
+      case '/file':     return <FilePage />
+      default:          return <HomePage />
+    }
+  }
+
+  return (
+    <div>
+      <Nav badge={badge} />
+      <main>{render()}</main>
+    </div>
+  )
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />)
+</script>
+</body>
+</html>
