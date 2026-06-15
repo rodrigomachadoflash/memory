@@ -15,16 +15,16 @@ Este repositório é a memória pessoal do Rodrigo Machado (rodrigo.machado@flas
 
 | Pasta | O que guarda |
 |---|---|
-| `perfil/` | Quem é o Rodrigo: papel, objetivos, preferências de trabalho |
-| `pessoas/time/` | Pessoas do time direto — um arquivo por pessoa |
-| `pessoas/stakeholders/` | Stakeholders importantes (liderança, outras áreas, externos) |
-| `reunioes/AAAA/MM/` | Notas de reunião (Granola + manuais), por ano/mês |
-| `calendario/` | Snapshot da semana + compromissos e prazos futuros |
-| `projetos/trabalho/` | Projetos de trabalho em andamento — um arquivo por projeto |
-| `projetos/pessoal/` | Projetos e metas pessoais |
-| `notas/trabalho/` e `notas/pessoal/` | Notas avulsas, ideias, aprendizados |
+| `profile/` | Quem é o Rodrigo: papel, objetivos, preferências de trabalho |
+| `people/team/` | Pessoas do time direto — um arquivo por pessoa |
+| `people/stakeholders/` | Stakeholders importantes (liderança, outras áreas, externos) |
+| `meetings/YYYY/MM/` | Notas de reunião (Granola + manuais), por ano/mês |
+| `calendar/` | Snapshot da semana + compromissos e prazos futuros |
+| `projects/work/` | Projetos de trabalho em andamento — um arquivo por projeto |
+| `projects/personal/` | Projetos e metas pessoais |
+| `notes/work/` e `notes/personal/` | Notas avulsas, ideias, aprendizados |
 | `inbox/` | Zona de despejo: qualquer coisa jogada aqui é processada no próximo sync |
-| `_sistema/` | Mecânica da memória: updates pendentes, changelog, templates |
+| `_system/` | Mecânica da memória: updates pendentes, changelog, templates |
 
 ## Convenções de nome
 

@@ -125,11 +125,11 @@ function MdView({ html }) {
 function Nav({ badge }) {
   const { pathname } = useRoute()
   const links = [
-    { to: '/',          label: 'Hoje' },
+    { to: '/',          label: 'Today' },
     { to: '/updates',   label: 'Updates',  badge },
-    { to: '/pessoas',   label: 'Pessoas' },
-    { to: '/projetos',  label: 'Projetos' },
-    { to: '/reunioes',  label: 'Reuniões' },
+    { to: '/people',    label: 'People' },
+    { to: '/projects',  label: 'Projects' },
+    { to: '/meetings',  label: 'Meetings' },
   ]
   return (
     <nav className="sticky top-0 z-50 bg-[#08080f]/90 backdrop-blur border-b border-[#1e1e2e]">
@@ -162,7 +162,7 @@ function HomePage() {
   const [upd, setUpd] = useState(null)
 
   useEffect(() => {
-    api.file('calendario/semana-atual.md').then(d => setCal(d.html || '')).catch(() => setCal(''))
+    api.file('calendar/semana-atual.md').then(d => setCal(d.html || '')).catch(() => setCal(''))
     api.updates().then(setUpd).catch(() => setUpd({ isEmpty: true }))
   }, [])
 
@@ -198,7 +198,7 @@ function HomePage() {
       <Card>
         <p className="text-xs font-semibold text-slate-400 mb-4">Agenda da semana</p>
         {cal === null ? <Spinner /> : cal ? <MdView html={cal} /> : (
-          <p className="text-slate-600 text-sm">calendario/semana-atual.md não encontrado. Rode /memory para gerar.</p>
+          <p className="text-slate-600 text-sm">calendar/semana-atual.md não encontrado. Rode /memory para gerar.</p>
         )}
       </Card>
     </div>
@@ -324,8 +324,8 @@ function UpdatesPage({ onApproved }) {
                           <select value={s.folder || 'pessoas/stakeholders'}
                             onChange={e => upd(item.number, 'folder', e.target.value)}
                             className="text-xs bg-[#1e1e2e] border border-[#2a2a3e] rounded px-2 py-0.5 text-slate-300">
-                            <option value="pessoas/time">time</option>
-                            <option value="pessoas/stakeholders">stakeholder</option>
+                            <option value="people/team">team</option>
+                            <option value="people/stakeholders">stakeholder</option>
                           </select>
                         )}
                         {!item.ambiguous && item.folder && (
@@ -383,13 +383,13 @@ function UpdatesPage({ onApproved }) {
   )
 }
 
-function PessoasPage() {
+function PeoplePage() {
   const [time, setTime]   = useState(null)
   const [stake, setStake] = useState(null)
 
   useEffect(() => {
-    api.list('pessoas/time').then(setTime).catch(() => setTime([]))
-    api.list('pessoas/stakeholders').then(setStake).catch(() => setStake([]))
+    api.list('people/team').then(setTime).catch(() => setTime([]))
+    api.list('people/stakeholders').then(setStake).catch(() => setStake([]))
   }, [])
 
   function initials(name) {
@@ -417,11 +417,11 @@ function PessoasPage() {
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
-      <h1 className="text-lg font-bold text-slate-100 mb-8">Pessoas</h1>
+      <h1 className="text-lg font-bold text-slate-100 mb-8">People</h1>
       {loading && <div className="py-16"><Spinner /></div>}
       {!loading && time.length > 0 && (
         <div className="mb-8">
-          <SectionLabel>Time</SectionLabel>
+          <SectionLabel>Team</SectionLabel>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {time.map(p => <PersonCard key={p.path} p={p} />)}
           </div>
@@ -445,13 +445,13 @@ function PessoasPage() {
   )
 }
 
-function ProjetosPage() {
+function ProjectsPage() {
   const [work, setWork]         = useState(null)
   const [personal, setPersonal] = useState(null)
 
   useEffect(() => {
-    api.list('projetos/trabalho').then(setWork).catch(() => setWork([]))
-    api.list('projetos/pessoal').then(setPersonal).catch(() => setPersonal([]))
+    api.list('projects/work').then(setWork).catch(() => setWork([]))
+    api.list('projects/personal').then(setPersonal).catch(() => setPersonal([]))
   }, [])
 
   function pretty(name) {
@@ -472,11 +472,11 @@ function ProjetosPage() {
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
-      <h1 className="text-lg font-bold text-slate-100 mb-8">Projetos</h1>
+      <h1 className="text-lg font-bold text-slate-100 mb-8">Projects</h1>
       {loading && <div className="py-16"><Spinner /></div>}
       {!loading && work.length > 0 && (
         <div className="mb-8">
-          <SectionLabel>Trabalho</SectionLabel>
+          <SectionLabel>Work</SectionLabel>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {work.map(p => <ProjCard key={p.path} p={p} />)}
           </div>
@@ -484,7 +484,7 @@ function ProjetosPage() {
       )}
       {!loading && personal.length > 0 && (
         <div>
-          <SectionLabel>Pessoal</SectionLabel>
+          <SectionLabel>Personal</SectionLabel>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {personal.map(p => <ProjCard key={p.path} p={p} />)}
           </div>
@@ -495,11 +495,11 @@ function ProjetosPage() {
   )
 }
 
-function ReunioesPage() {
+function MeetingsPage() {
   const [items, setItems] = useState(null)
 
   useEffect(() => {
-    api.list('reunioes')
+    api.list('meetings')
       .then(list => setItems([...list].sort((a, b) => b.modified.localeCompare(a.modified))))
       .catch(() => setItems([]))
   }, [])
@@ -512,7 +512,7 @@ function ReunioesPage() {
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
-      <h1 className="text-lg font-bold text-slate-100 mb-8">Reuniões</h1>
+      <h1 className="text-lg font-bold text-slate-100 mb-8">Meetings</h1>
       {items === null && <div className="py-16"><Spinner /></div>}
       {items?.length === 0 && (
         <p className="text-slate-600 text-center py-16">
@@ -597,9 +597,9 @@ function App() {
   function render() {
     switch (pathname) {
       case '/updates':  return <UpdatesPage onApproved={() => setBadge(0)} />
-      case '/pessoas':  return <PessoasPage />
-      case '/projetos': return <ProjetosPage />
-      case '/reunioes': return <ReunioesPage />
+      case '/people':   return <PeoplePage />
+      case '/projects': return <ProjectsPage />
+      case '/meetings': return <MeetingsPage />
       case '/file':     return <FilePage />
       default:          return <HomePage />
     }

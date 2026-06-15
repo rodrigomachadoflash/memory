@@ -81,7 +81,7 @@ app.get('/api/list', (req, res) => {
 // GET /api/resolve?name=... (find a file by slug)
 app.get('/api/resolve', (req, res) => {
   const slug = toSlug(req.query.name || '')
-  const searchDirs = ['pessoas/time', 'pessoas/stakeholders', 'projetos/trabalho', 'projetos/pessoal', 'notas/trabalho', 'notas/pessoal', 'perfil']
+  const searchDirs = ['people/team', 'people/stakeholders', 'projects/work', 'projects/personal', 'notes/work', 'notes/personal', 'profile']
 
   for (const dir of searchDirs) {
     const fp = path.join(ROOT, dir, slug + '.md')
@@ -98,7 +98,7 @@ app.get('/api/resolve', (req, res) => {
     }
     return null
   }
-  const found = findInDir(path.join(ROOT, 'reunioes'))
+  const found = findInDir(path.join(ROOT, 'meetings'))
   if (found) return res.json({ path: found })
 
   res.status(404).json({ error: `"${req.query.name}" não encontrado na memória` })
@@ -107,7 +107,7 @@ app.get('/api/resolve', (req, res) => {
 // GET /api/updates
 app.get('/api/updates', (req, res) => {
   try {
-    const fp = path.join(ROOT, '_sistema/updates-pendentes.md')
+    const fp = path.join(ROOT, '_system/updates-pendentes.md')
     const content = fs.readFileSync(fp, 'utf-8')
     const isEmpty = content.includes('_Nenhum update pendente._')
     res.json({ sections: isEmpty ? [] : parseUpdates(content), isEmpty })
@@ -151,10 +151,10 @@ function inferType(title) {
 }
 
 function inferFolder(detail) {
-  const hasTime = detail.includes('`time/`')
+  const hasTeam = detail.includes('`team/`') || detail.includes('`time/`')
   const hasStake = detail.includes('`stakeholders/`')
-  if (hasTime && !hasStake) return 'pessoas/time'
-  if (hasStake && !hasTime) return 'pessoas/stakeholders'
+  if (hasTeam && !hasStake) return 'people/team'
+  if (hasStake && !hasTeam) return 'people/stakeholders'
   return null
 }
 
@@ -170,12 +170,12 @@ app.post('/api/approve', (req, res) => {
   }
 
   // Clear updates-pendentes
-  fs.writeFileSync(path.join(ROOT, '_sistema/updates-pendentes.md'),
+  fs.writeFileSync(path.join(ROOT, '_system/updates-pendentes.md'),
     '# Updates pendentes\n\nPropostas de atualização aguardando aprovação do Rodrigo. Preenchido pelo `/memory`, esvaziado após aprovação/rejeição.\n\n_Nenhum update pendente._\n')
 
   // Append to changelog
   if (applied.length > 0) {
-    const clPath = path.join(ROOT, '_sistema/changelog.md')
+    const clPath = path.join(ROOT, '_system/changelog.md')
     const cl = fs.readFileSync(clPath, 'utf-8')
     const entry = `\n## ${today}\n\n- Aprovados via web UI: itens ${applied.join(', ')} (${applied.length} criados)\n`
     fs.writeFileSync(clPath, cl.replace('# Changelog da memória\n', '# Changelog da memória\n' + entry))
@@ -244,13 +244,13 @@ ${notes || '<!-- preencher -->'}
 
 function applyItem(item) {
   if (item.type === 'person') {
-    const folder = item.folder || 'pessoas/stakeholders'
+    const folder = item.folder || 'people/stakeholders'
     const dir = path.join(ROOT, folder)
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
     const fp = path.join(dir, toSlug(item.name) + '.md')
     if (!fs.existsSync(fp)) fs.writeFileSync(fp, personTemplate(item))
   } else if (item.type === 'project') {
-    const dir = path.join(ROOT, 'projetos/trabalho')
+    const dir = path.join(ROOT, 'projects/work')
     const fp = path.join(dir, toSlug(item.name) + '.md')
     if (!fs.existsSync(fp)) fs.writeFileSync(fp, projectTemplate(item))
   }

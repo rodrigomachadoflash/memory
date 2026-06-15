@@ -10,44 +10,44 @@ A memória vive em `~/Documents/Repos/memory/`. Leia o `CLAUDE.md` de lá antes 
 ## Modos
 
 - **Sync (padrão)**: `/memory` sem argumentos → executa o ciclo completo abaixo.
-- **Consulta**: `/memory [pergunta]` → busca a resposta nos arquivos da memória (pessoas, reuniões, projetos) e responde com links para as fontes. Não propõe updates.
+- **Consulta**: `/memory [pergunta]` → busca a resposta nos arquivos da memória (people, meetings, projects) e responde com links para as fontes. Não propõe updates.
 
 ## Ciclo de sync
 
 ### 1. Coletar (em paralelo quando possível)
 
-- **Granola** (MCP `granola`, carregar via ToolSearch): listar reuniões desde o último sync (ver data no topo do `_sistema/changelog.md`; na dúvida, últimas 48h). Puxar notas/resumo de cada uma.
+- **Granola** (MCP `granola`, carregar via ToolSearch): listar reuniões desde o último sync (ver data no topo do `_system/changelog.md`; na dúvida, últimas 48h). Puxar notas/resumo de cada uma.
 - **Google Calendar** (MCP claude.ai, carregar via ToolSearch): eventos de hoje + próximos 7 dias.
 - **Inbox**: ler todos os arquivos de `inbox/` (exceto LEIA-ME.md).
 - Se o MCP do Granola não estiver autenticado, avisar o Rodrigo para rodar `/mcp` e autenticar — e seguir com as outras fontes.
 
 ### 2. Propor
 
-Escrever as propostas em `_sistema/updates-pendentes.md`, agrupadas e numeradas:
+Escrever as propostas em `_system/updates-pendentes.md`, agrupadas e numeradas:
 
 ```markdown
-# Updates pendentes — {AAAA-MM-DD}
+# Updates pendentes — {YYYY-MM-DD}
 
-## Reuniões novas
-1. **{título} ({data})** → criar `reunioes/{AAAA}/{MM}/{AAAA-MM-DD-assunto}.md` — participantes: X, Y. Resumo: ...
+## Meetings
+1. **{título} ({data})** → criar `meetings/{YYYY}/{MM}/{YYYY-MM-DD-topic}.md` — participantes: X, Y. Resumo: ...
 
-## Pessoas
-2. **{nome}** → criar em `pessoas/time/` (apareceu em 3 reuniões; ainda não mapeado)
+## People
+2. **{nome}** → criar em `people/team/` (apareceu em 3 reuniões; ainda não mapeado)
 3. **{nome}** → atualizar histórico com decisão da reunião #1
 
-## Projetos
+## Projects
 4. ...
 
-## Calendário
-5. Atualizar `calendario/semana-atual.md` + novos prazos em `compromissos.md`
+## Calendar
+5. Atualizar `calendar/semana-atual.md` + novos prazos em `compromissos.md`
 
 ## Inbox
-6. `inbox/{arquivo}` → mover conteúdo para `notas/trabalho/{nome}.md`
+6. `inbox/{arquivo}` → mover conteúdo para `notes/work/{nome}.md`
 ```
 
 Regras de proposta:
-- Reunião nova → sempre propor arquivo usando `_sistema/templates/reuniao.md`.
-- Participante recorrente (2+ reuniões) sem arquivo em `pessoas/` → propor criação com `_sistema/templates/pessoa.md`. Perguntar ao Rodrigo se é `time/` ou `stakeholders/`.
+- Reunião nova → sempre propor arquivo usando `_system/templates/reuniao.md`.
+- Participante recorrente (2+ reuniões) sem arquivo em `people/` → propor criação com `_system/templates/pessoa.md`. Perguntar ao Rodrigo se é `team/` ou `stakeholders/`.
 - Decisão ou ação que envolve pessoa/projeto já mapeado → propor atualização no histórico do arquivo correspondente.
 - Nunca aplicar nada nesta etapa.
 
@@ -59,7 +59,7 @@ Mostrar o resumo numerado na conversa e perguntar o que aprovar (tudo / números
 
 Para cada item aprovado:
 - Criar/editar os arquivos seguindo os templates e convenções do CLAUDE.md.
-- Atualizar wikilinks nos dois sentidos (reunião ↔ pessoa ↔ projeto).
+- Atualizar wikilinks nos dois sentidos (meeting ↔ person ↔ project).
 - Apagar do `inbox/` o que foi processado.
 - Itens rejeitados: apenas remover de updates-pendentes.
 
@@ -84,7 +84,7 @@ Máximo **3 outputs por sync** para não virar um interrogatório. Priorize os m
 
 ### 6. Fechar
 
-- Esvaziar `_sistema/updates-pendentes.md` (deixar "_Nenhum update pendente._").
-- Adicionar entrada datada no `_sistema/changelog.md` com o que foi aplicado.
-- `git add -A && git commit -m "sync: {AAAA-MM-DD}" && git push` no repo memory.
+- Esvaziar `_system/updates-pendentes.md` (deixar "_Nenhum update pendente._").
+- Adicionar entrada datada no `_system/changelog.md` com o que foi aplicado.
+- `git add -A && git commit -m "sync: {YYYY-MM-DD}" && git push` no repo memory.
 - Responder com resumo curto: o que entrou, o que ficou de fora, pendências detectadas (ações sem dono, conflitos de agenda). Se capturou ratings de skills, mencionar quais skills foram atualizadas.
