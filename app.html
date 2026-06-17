@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Memory</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>tailwind.config = { theme: { extend: { colors: { brand: '#7c6cfa' } } } }</script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    body { background:#08080f; font-family:system-ui,-apple-system,sans-serif }
+    ::-webkit-scrollbar{width:5px}::-webkit-scrollbar-track{background:#08080f}::-webkit-scrollbar-thumb{background:#1e1e2e;border-radius:3px}
+    .md h1{font-size:1.4rem;font-weight:700;color:#f1f5f9;margin:1.2rem 0 .4rem}
+    .md h2{font-size:1.1rem;font-weight:600;color:#e2e8f0;border-bottom:1px solid #1e1e2e;padding-bottom:.3rem;margin:1.2rem 0 .4rem}
+    .md p{color:#94a3b8;line-height:1.75;margin:.35rem 0}
+    .md ul,.md ol{color:#94a3b8;margin:.35rem 0 .35rem 1.4rem}
+    .md li{margin:.2rem 0}
+    .md code{background:#1e1e2e;padding:.1rem .3rem;border-radius:.2rem;font-size:.82em;color:#94a3b8;font-family:monospace}
+    .md strong{color:#e2e8f0;font-weight:600}
+    .md a{color:#7c6cfa;text-decoration:underline}
+    @keyframes spin{to{transform:rotate(360deg)}}.spin{animation:spin .7s linear infinite}
+  </style>
+</head>
+<body class="min-h-screen">
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useCallback } = React
+
+// ─── Config ─────────────────────────────────────────────
+const REPO  = 'rodrigomachadoflash/memory'
+const BRANCH = 'main'
+
+// ─── GitHub API ─────────────────────────────────────────
+async function ghFetch(path, token, opts = {}) {
+  const r = await fetch(`https://api.github.com/repos/${REPO}/${path}`, {
+    ...opts,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      ...(opts.headers || {})
+    }
+  })
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({}))
+    throw new Error(err.message || `GitHub ${r.status}`)
+  }
+  return r.json()
+}
+
+async function getFile(token, filePath) {
+  const data = await ghFetch(`contents/${filePath}?ref=${BRANCH}`, token)
+  return { content: atob(data.content.replace(/\n/g, '')), sha: data.sha }
+}
+
+async function upsertFile(token, filePath, content, message, sha) {
+  return ghFetch(`contents/${filePath}`, token, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      message,
+      content: btoa(unescape(encodeURIComponent(content))),
+      branch: BRANCH,
+      ...(sha ? { sha } : {})
+    })
+  })
+}
+
+// ─── Markdown (simple, no external lib) ─────────────────
+function renderMd(md) {
+  return md
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/^### (.+)$/gm,'<h3>$1</h3>')
+    .replace(/^## (.+)$/gm,'<h2>$1</h2>')
+    .replace(/^# (.+)$/gm,'<h1>$1</h1>')
+    .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
+    .replace(/`([^`]+)`/g,'<code>$1</code>')
+    .replace(/^\- (.+)$/gm,'<li>$1</li>')
+    .replace(/(<li>.*<\/li>\n?)+/g, s => `<ul>${s}</ul>`)
+    .replace(/\n\n+/g,'</p><p>').replace(/^(?!<[hul])/,'<p>').replace(/(?<![>])$/,'</p>')
+}
+
+// ─── Parse updates-pendentes.md ──────────────────────────
+function parseUpdates(content) {
+  const sections = []
+  let cur = null
+  for (const line of content.split('\n')) {
+    if (line.startsWith('## ')) {
+      cur = { title: line.slice(3).trim(), items: [] }
+      sections.push(cur)
+    } else if (cur && /^\d+\./.test(line.trim())) {
+      const m = line.match(/^(\d+)\.\s+\*\*(.+?)\*\*\s*[→—]\s*(.+)$/)
+      if (!m) continue
+      const detail = m[3].trim()
+      const type = inferType(cur.title)
+      const folder = inferFolder(detail)
+      cur.items.push({
+        number: parseInt(m[1]), name: m[2], detail, type, folder,
+        ambiguous: folder === null && type === 'person'
+      })
+    }
+  }
+  return sections.filter(s => s.items.length > 0)
+}
+
+function inferType(title) {
+  const t = title.toLowerCase()
+  if (t.includes('people') || t.includes('pessoa')) return 'person'
+  if (t.includes('project') || t.includes('projeto')) return 'project'
+  if (t.includes('meeting') || t.includes('reuni')) return 'meeting'
+  return 'other'
+}
+
+function inferFolder(detail) {
+  const hasTeam  = detail.includes('`team/`') || detail.includes('`time/`')
+  const hasStake = detail.includes('`stakeholders/`')
+  if (hasTeam && !hasStake) return 'people/team'
+  if (hasStake && !hasTeam) return 'people/stakeholders'
+  return null
+}
+
+function toSlug(name) {
+  return name.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'')
+    .replace(/[^a-z0-9\s-]/g,'').trim().replace(/\s+/g,'-')
+}
+
+// ─── Templates ──────────────────────────────────────────
+function personTemplate({ name, role, email, folder, notes }) {
+  return `# ${name}\n\n- **Papel**: ${role || '<!-- preencher -->'}\n- **Relação**: ${folder?.includes('team') ? 'time direto' : 'stakeholder'}\n- **E-mail / Slack**: ${email || '<!-- preencher -->'}\n- **Desde**: <!-- preencher -->\n\n## Contexto\n\n${notes || '<!-- O que essa pessoa toca, estilo de trabalho, como se comunicar bem com ela. -->'}\n\n## Acordos e pendências\n\n<!-- nenhum ainda -->\n\n## Histórico\n\n<!-- Atualizado pelo sync: links para reuniões e decisões relevantes -->\n\n## Relacionados\n\n<!-- [[projeto-exemplo]] -->\n`
+}
+
+function projectTemplate({ name, notes }) {
+  const today = new Date().toISOString().slice(0,10)
+  return `# ${name}\n\n- **Status**: em andamento\n- **Início**: ${today}\n- **Objetivo**: <!-- preencher -->\n- **Pessoas**: <!-- [[pessoa]] (papel) -->\n\n## Situação atual\n\n${notes || '<!-- preencher -->'}\n\n## Linha do tempo\n\n- ${today} — projeto mapeado\n\n## Pendências\n\n<!-- - [ ] pendência — dono — prazo -->\n`
+}
+
+// ─── UI primitives ──────────────────────────────────────
+function Spinner() {
+  return <div className="spin w-5 h-5 rounded-full border-2 border-violet-500 border-t-transparent mx-auto" />
+}
+
+function Card({ children, className = '' }) {
+  return <div className={`bg-[#0f0f1a] border border-[#1e1e2e] rounded-xl p-5 ${className}`}>{children}</div>
+}
+
+function Chip({ children }) {
+  return <span className="text-[10px] uppercase tracking-widest text-slate-500 bg-[#1e1e2e] px-2 py-0.5 rounded">{children}</span>
+}
+
+// ─── Login ──────────────────────────────────────────────
+function LoginPage({ onLogin }) {
+  const [token, setToken] = useState('')
+  const [err, setErr]     = useState('')
+  const [loading, setLoading] = useState(false)
+
+  async function submit(e) {
+    e.preventDefault()
+    setLoading(true); setErr('')
+    try {
+      await getFile(token.trim(), '_system/updates-pendentes.md')
+      localStorage.setItem('gh_token', token.trim())
+      onLogin(token.trim())
+    } catch(e) {
+      setErr('Token inválido ou sem acesso ao repositório.')
+    }
+    setLoading(false)
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center px-4">
+      <div className="w-full max-w-sm">
+        <p className="text-violet-400 font-semibold text-xs tracking-[.2em] uppercase mb-6 text-center">Memory</p>
+        <Card>
+          <p className="text-slate-200 font-semibold mb-1">GitHub Personal Access Token</p>
+          <p className="text-slate-500 text-xs mb-4">
+            Acesse <a href="https://github.com/settings/tokens" target="_blank" className="text-violet-400 underline">github.com/settings/tokens</a> → Generate new token (classic) → marque <code>repo</code>.
+            O token fica só no seu browser (localStorage).
+          </p>
+          <form onSubmit={submit} className="space-y-3">
+            <input
+              type="password"
+              placeholder="ghp_..."
+              value={token}
+              onChange={e => setToken(e.target.value)}
+              className="w-full bg-[#1a1a28] border border-[#2a2a3e] rounded-lg px-3 py-2 text-slate-200 placeholder-slate-700 text-sm focus:outline-none focus:border-violet-600"
+            />
+            {err && <p className="text-red-400 text-xs">{err}</p>}
+            <button type="submit" disabled={loading || !token}
+              className="w-full py-2 rounded-lg text-sm font-semibold text-white bg-violet-600 hover:bg-violet-500 disabled:bg-[#1e1e2e] disabled:text-slate-600 transition-colors">
+              {loading ? 'Verificando…' : 'Entrar'}
+            </button>
+          </form>
+        </Card>
+      </div>
+    </div>
+  )
+}
+
+// ─── Updates page ────────────────────────────────────────
+function UpdatesPage({ token }) {
+  const [data,    setData]    = useState(null)
+  const [sha,     setSha]     = useState(null)
+  const [calSha,  setCalSha]  = useState(null)
+  const [sel,     setSel]     = useState({})
+  const [loading, setLoading] = useState(false)
+  const [done,    setDone]    = useState(null)
+  const [err,     setErr]     = useState('')
+
+  useEffect(() => {
+    getFile(token, '_system/updates-pendentes.md').then(({ content, sha }) => {
+      setSha(sha)
+      const isEmpty = content.includes('_Nenhum update pendente._')
+      const sections = isEmpty ? [] : parseUpdates(content)
+      setData({ sections, isEmpty })
+      const init = {}
+      sections.forEach(s => s.items.forEach(item => {
+        init[item.number] = { approved: true, folder: item.folder, role: '', email: '', notes: '' }
+      }))
+      setSel(init)
+    }).catch(e => setErr(e.message))
+  }, [token])
+
+  const allItems = data?.sections?.flatMap(s => s.items) || []
+  const approvedNums = Object.entries(sel).filter(([,v]) => v.approved).map(([k]) => parseInt(k))
+  const count = approvedNums.length
+
+  function toggle(num) { setSel(s => ({...s,[num]:{...s[num],approved:!s[num].approved}})) }
+  function upd(num,k,v){ setSel(s => ({...s,[num]:{...s[num],[k]:v}})) }
+  function selectAll(v){ setSel(s => Object.fromEntries(Object.entries(s).map(([k,sv])=>[k,{...sv,approved:v}]))) }
+
+  async function submit() {
+    setLoading(true); setErr('')
+    const today = new Date().toISOString().slice(0,10)
+    const items = allItems.filter(i => sel[i.number]?.approved)
+      .map(i => ({...i, folder: sel[i.number]?.folder || i.folder,
+                  role: sel[i.number]?.role||'', email: sel[i.number]?.email||'',
+                  notes: sel[i.number]?.notes||'' }))
+
+    try {
+      // 1. Create each approved file
+      for (const item of items) {
+        let path, content
+        if (item.type === 'person') {
+          const folder = item.folder || 'people/stakeholders'
+          path = `${folder}/${toSlug(item.name)}.md`
+          content = personTemplate(item)
+        } else if (item.type === 'project') {
+          path = `projects/work/${toSlug(item.name)}.md`
+          content = projectTemplate(item)
+        } else continue
+
+        // Check if file exists (get sha) or create new
+        let existingSha
+        try { const f = await getFile(token, path); existingSha = f.sha } catch {}
+        if (!existingSha) {
+          await upsertFile(token, path, content, `feat: add ${item.name} via web approval`, undefined)
+        }
+      }
+
+      // 2. Clear updates-pendentes.md
+      const empty = '# Updates pendentes\n\nPropostas de atualização aguardando aprovação do Rodrigo. Preenchido pelo `/memory`, esvaziado após aprovação/rejeição.\n\n_Nenhum update pendente._\n'
+      await upsertFile(token, '_system/updates-pendentes.md', empty, `sync: ${today} — ${items.length} aprovados via web`, sha)
+
+      // 3. Append to changelog
+      try {
+        const cl = await getFile(token, '_system/changelog.md')
+        const entry = `\n## ${today}\n\n- Aprovados via web: ${items.map(i=>i.name).join(', ')} (${items.length} criados)\n`
+        const updated = cl.content.replace('# Changelog da memória\n', '# Changelog da memória\n' + entry)
+        await upsertFile(token, '_system/changelog.md', updated, `chore: changelog ${today}`, cl.sha)
+      } catch {}
+
+      setDone({ applied: items.length })
+    } catch(e) {
+      setErr(e.message)
+    }
+    setLoading(false)
+  }
+
+  if (!data && !err) return <div className="flex justify-center py-24"><Spinner /></div>
+  if (err) return <div className="max-w-xl mx-auto px-4 py-16"><Card className="border-red-900/40"><p className="text-red-400 text-sm">{err}</p></Card></div>
+
+  if (done) return (
+    <div className="max-w-xl mx-auto px-4 py-16">
+      <Card className="border-emerald-900/50 bg-emerald-950/10">
+        <p className="text-emerald-400 font-semibold mb-1">✓ Aplicado</p>
+        <p className="text-slate-400 text-sm">{done.applied} {done.applied === 1 ? 'item criado' : 'itens criados'} e enviados para o GitHub.</p>
+        <button onClick={() => { setDone(null); setData(null); setSel({}) }} className="mt-4 text-violet-400 text-sm hover:underline">← Ver updates</button>
+      </Card>
+    </div>
+  )
+
+  if (data.isEmpty || allItems.length === 0) return (
+    <div className="max-w-xl mx-auto px-4 py-24 text-center">
+      <p className="text-emerald-500 font-medium">Memória em dia ✓</p>
+      <p className="text-slate-600 text-sm mt-2">Rode /memory no Claude Code para sincronizar.</p>
+    </div>
+  )
+
+  return (
+    <div className="max-w-2xl mx-auto px-4 py-8">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-lg font-bold text-slate-100">Updates pendentes</h1>
+          <div className="flex gap-3 mt-1">
+            <button onClick={()=>selectAll(true)}  className="text-xs text-violet-400 hover:underline">Select all</button>
+            <button onClick={()=>selectAll(false)} className="text-xs text-slate-600 hover:underline">Deselect all</button>
+          </div>
+        </div>
+        <button onClick={submit} disabled={loading||count===0}
+          className="px-5 py-2 rounded-lg text-sm font-semibold text-white bg-violet-600 hover:bg-violet-500 disabled:bg-[#1e1e2e] disabled:text-slate-600 transition-colors">
+          {loading ? 'Applying…' : `Approve ${count}`}
+        </button>
+      </div>
+
+      {err && <p className="text-red-400 text-sm mb-4">{err}</p>}
+
+      {data.sections?.map(section => (
+        <div key={section.title} className="mb-8">
+          <p className="text-[10px] uppercase tracking-widest text-slate-600 mb-3">{section.title}</p>
+          <div className="space-y-2">
+            {section.items.map(item => {
+              const s = sel[item.number] || { approved: true }
+              return (
+                <div key={item.number}
+                  className={`rounded-xl border p-4 transition-all ${s.approved ? 'border-[#2a2a3e] bg-[#0f0f1a]' : 'border-[#1a1a24] bg-[#0a0a10] opacity-40'}`}>
+                  <div className="flex items-start gap-3">
+                    <button onClick={() => toggle(item.number)}
+                      className={`mt-0.5 w-5 h-5 rounded flex-shrink-0 border-2 flex items-center justify-center transition-colors ${s.approved ? 'bg-violet-600 border-violet-600' : 'border-slate-700 bg-transparent'}`}>
+                      {s.approved && <span className="text-white text-[10px] font-bold">✓</span>}
+                    </button>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2 mb-1">
+                        <span className="text-slate-600 text-[10px]">#{item.number}</span>
+                        <span className="text-slate-100 font-medium text-sm">{item.name}</span>
+                        {item.ambiguous && s.approved && (
+                          <select value={s.folder || 'people/stakeholders'}
+                            onChange={e => upd(item.number,'folder',e.target.value)}
+                            className="text-xs bg-[#1e1e2e] border border-[#2a2a3e] rounded px-2 py-0.5 text-slate-300">
+                            <option value="people/team">team</option>
+                            <option value="people/stakeholders">stakeholder</option>
+                          </select>
+                        )}
+                        {!item.ambiguous && item.folder && (
+                          <Chip>{item.folder.split('/').pop()}</Chip>
+                        )}
+                      </div>
+                      <p className="text-slate-500 text-xs leading-relaxed">{item.detail}</p>
+                      {s.approved && item.type === 'person' && (
+                        <div className="mt-2 space-y-2">
+                          <div className="grid grid-cols-2 gap-2">
+                            <input placeholder="Role / position" value={s.role||''} onChange={e=>upd(item.number,'role',e.target.value)}
+                              className="w-full text-sm bg-[#1a1a28] border border-[#2a2a3e] rounded-lg px-3 py-1.5 text-slate-300 placeholder-slate-700 focus:outline-none focus:border-violet-600" />
+                            <input placeholder="Email / Slack" value={s.email||''} onChange={e=>upd(item.number,'email',e.target.value)}
+                              className="w-full text-sm bg-[#1a1a28] border border-[#2a2a3e] rounded-lg px-3 py-1.5 text-slate-300 placeholder-slate-700 focus:outline-none focus:border-violet-600" />
+                          </div>
+                          <textarea placeholder="Context — what they do, how to work with them…" value={s.notes||''} onChange={e=>upd(item.number,'notes',e.target.value)}
+                            rows={2} className="w-full text-sm bg-[#1a1a28] border border-[#2a2a3e] rounded-lg px-3 py-2 text-slate-300 placeholder-slate-700 focus:outline-none focus:border-violet-600 resize-none" />
+                        </div>
+                      )}
+                      {s.approved && item.type === 'project' && (
+                        <input placeholder="Goal / context (optional)" value={s.notes||''} onChange={e=>upd(item.number,'notes',e.target.value)}
+                          className="mt-2 w-full text-sm bg-[#1a1a28] border border-[#2a2a3e] rounded-lg px-3 py-1.5 text-slate-300 placeholder-slate-700 focus:outline-none focus:border-violet-600" />
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      ))}
+
+      <div className="sticky bottom-4 flex justify-end mt-4">
+        <button onClick={submit} disabled={loading||count===0}
+          className="px-6 py-2.5 rounded-xl text-sm font-semibold text-white shadow-lg shadow-violet-900/40 bg-violet-600 hover:bg-violet-500 disabled:bg-[#1e1e2e] disabled:text-slate-600 disabled:shadow-none transition-colors">
+          {loading ? 'Applying…' : `Approve ${count} selected`}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─── App ────────────────────────────────────────────────
+function App() {
+  const [token, setToken] = useState(() => localStorage.getItem('gh_token') || '')
+
+  if (!token) return <LoginPage onLogin={setToken} />
+
+  return (
+    <div>
+      <nav className="sticky top-0 z-50 bg-[#08080f]/90 backdrop-blur border-b border-[#1e1e2e]">
+        <div className="max-w-4xl mx-auto px-4 flex items-center justify-between h-11">
+          <span className="font-semibold text-violet-400 text-xs tracking-[.2em] uppercase">Memory</span>
+          <button onClick={() => { localStorage.removeItem('gh_token'); setToken('') }}
+            className="text-slate-700 hover:text-slate-400 text-xs transition-colors">Sign out</button>
+        </div>
+      </nav>
+      <main><UpdatesPage token={token} /></main>
+    </div>
+  )
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />)
+</script>
+</body>
+</html>
